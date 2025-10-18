@@ -33,6 +33,10 @@ const GetDebateSchema = z.object({
 	id: z.string(),
 });
 
+const CreateDebateSchema = z.object({
+	question: z.string(),
+});
+
 export const saveDebateFn = createServerFn()
 	.inputValidator(SaveDebateSchema)
 	.handler(async ({ data }) => {
@@ -47,6 +51,50 @@ export const saveDebateFn = createServerFn()
 			JSON.stringify(data.messages),
 			data.timestamp,
 		);
+
+		return { success: true };
+	});
+
+export const createDebateFn = createServerFn()
+	.inputValidator(CreateDebateSchema)
+	.handler(async ({ data }) => {
+		const debateId = `debate-${Date.now()}`;
+		const timestamp = Date.now();
+
+		const stmt = db.prepare(`
+      INSERT INTO debates (id, question, messages, timestamp, is_favorite, reaction)
+      VALUES (?, ?, ?, ?, 0, NULL)
+    `);
+
+		stmt.run(debateId, data.question, JSON.stringify([]), timestamp);
+
+		return { debateId };
+	});
+
+export const appendMessageFn = createServerFn()
+	.inputValidator(
+		z.object({
+			id: z.string(),
+			message: z.any(),
+		}),
+	)
+	.handler(async ({ data }) => {
+		const getStmt = db.prepare(`
+			SELECT messages FROM debates WHERE id = ?
+		`);
+		const row = getStmt.get(data.id) as { messages: string } | undefined;
+
+		if (!row) {
+			throw new Error("Debate not found");
+		}
+
+		const messages = JSON.parse(row.messages);
+		messages.push(data.message);
+
+		const updateStmt = db.prepare(`
+			UPDATE debates SET messages = ? WHERE id = ?
+		`);
+		updateStmt.run(JSON.stringify(messages), data.id);
 
 		return { success: true };
 	});
