@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { db } from "./db";
 import { z } from "zod";
 import type { Message } from "./debate";
+import type { DebateContext } from "./context";
 
 export type DebateHistory = {
 	id: string;
@@ -10,6 +11,7 @@ export type DebateHistory = {
 	timestamp: number;
 	isFavorite?: boolean;
 	reaction?: "thumbs-up" | "thumbs-down";
+	context?: DebateContext;
 };
 
 const SaveDebateSchema = z.object({
@@ -17,6 +19,7 @@ const SaveDebateSchema = z.object({
 	question: z.string(),
 	messages: z.array(z.any()),
 	timestamp: z.number(),
+	context: z.any().optional(),
 });
 
 const UpdateDebateSchema = z.object({
@@ -41,8 +44,8 @@ export const saveDebateFn = createServerFn()
 	.inputValidator(SaveDebateSchema)
 	.handler(async ({ data }) => {
 		const stmt = db.prepare(`
-      INSERT INTO debates (id, question, messages, timestamp, is_favorite, reaction)
-      VALUES (?, ?, ?, ?, 0, NULL)
+      INSERT INTO debates (id, question, messages, timestamp, is_favorite, reaction, context)
+      VALUES (?, ?, ?, ?, 0, NULL, ?)
     `);
 
 		stmt.run(
@@ -50,6 +53,7 @@ export const saveDebateFn = createServerFn()
 			data.question,
 			JSON.stringify(data.messages),
 			data.timestamp,
+			data.context ? JSON.stringify(data.context) : null,
 		);
 
 		return { success: true };
@@ -101,7 +105,7 @@ export const appendMessageFn = createServerFn()
 
 export const getDebatesFn = createServerFn().handler(async () => {
 	const stmt = db.prepare(`
-    SELECT id, question, messages, timestamp, is_favorite, reaction
+    SELECT id, question, messages, timestamp, is_favorite, reaction, context
     FROM debates
     ORDER BY timestamp DESC
     LIMIT 50
@@ -114,6 +118,7 @@ export const getDebatesFn = createServerFn().handler(async () => {
 		timestamp: number;
 		is_favorite: number;
 		reaction: string | null;
+		context: string | null;
 	}>;
 
 	return rows.map((row) => ({
@@ -123,6 +128,7 @@ export const getDebatesFn = createServerFn().handler(async () => {
 		timestamp: row.timestamp,
 		isFavorite: row.is_favorite === 1,
 		reaction: row.reaction as "thumbs-up" | "thumbs-down" | undefined,
+		context: row.context ? JSON.parse(row.context) : undefined,
 	})) as DebateHistory[];
 });
 
@@ -130,7 +136,7 @@ export const getDebateFn = createServerFn()
 	.inputValidator(GetDebateSchema)
 	.handler(async ({ data }) => {
 		const stmt = db.prepare(`
-      SELECT id, question, messages, timestamp, is_favorite, reaction
+      SELECT id, question, messages, timestamp, is_favorite, reaction, context
       FROM debates
       WHERE id = ?
     `);
@@ -143,6 +149,7 @@ export const getDebateFn = createServerFn()
 					timestamp: number;
 					is_favorite: number;
 					reaction: string | null;
+					context: string | null;
 			  }
 			| undefined;
 
@@ -157,6 +164,7 @@ export const getDebateFn = createServerFn()
 			timestamp: row.timestamp,
 			isFavorite: row.is_favorite === 1,
 			reaction: row.reaction as "thumbs-up" | "thumbs-down" | undefined,
+			context: row.context ? JSON.parse(row.context) : undefined,
 		} as DebateHistory;
 	});
 

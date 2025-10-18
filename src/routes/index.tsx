@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { debateServerFn, type Message } from "@/lib/debate";
 import { saveDebateFn } from "@/lib/debate-storage";
+import type { DebateContext } from "@/lib/context";
 
 export const Route = createFileRoute("/")({
 	component: DebatePage,
@@ -18,6 +19,7 @@ function DebatePage() {
 	const [typingIndicator, setTypingIndicator] = useState<
 		"angel" | "devil" | null
 	>(null);
+	const [debateCount, setDebateCount] = useState(0);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -43,10 +45,12 @@ function DebatePage() {
 			debateId,
 			question,
 			messages,
+			context,
 		}: {
 			debateId: string;
 			question: string;
 			messages: Message[];
+			context?: DebateContext;
 		}) =>
 			saveDebateFn({
 				data: {
@@ -54,6 +58,7 @@ function DebatePage() {
 					question,
 					messages,
 					timestamp: Date.now(),
+					context,
 				},
 			}),
 		onSuccess: (_data, variables) => {
@@ -75,14 +80,21 @@ function DebatePage() {
 		setQuestion("");
 
 		const collectedMessages: Message[] = [];
+		let debateContext: DebateContext | undefined;
 
 		try {
 			const stream = await debateServerFn({
-				data: { question: currentQuestion },
+				data: { question: currentQuestion, debateCount },
 			});
 
 			for await (const msg of stream) {
 				console.log("Received message:", msg);
+
+				if (msg.type === "context") {
+					// Store context but don't add to messages or display it
+					debateContext = msg.context;
+					continue;
+				}
 
 				if (msg.type === "devil") {
 					setTypingIndicator("devil");
@@ -103,7 +115,11 @@ function DebatePage() {
 				debateId,
 				question: currentQuestion,
 				messages: collectedMessages,
+				context: debateContext,
 			});
+
+			// Increment debate count for the session
+			setDebateCount((prev) => prev + 1);
 		} catch (error) {
 			console.error("Debate error:", error);
 			console.error("Error details:", error);
@@ -111,7 +127,7 @@ function DebatePage() {
 			setIsLoading(false);
 			setTypingIndicator(null);
 		}
-	}, [question, saveDebateMutation]);
+	}, [question, debateCount, saveDebateMutation]);
 
 	return (
 		<div className="min-h-screen bg-[#f5f5f5] flex flex-col">
