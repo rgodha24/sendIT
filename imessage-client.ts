@@ -37,8 +37,7 @@ const selectInbound = chatDb.prepare(`
     m.date as date
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
-  WHERE h.id = ?
-    AND m.is_from_me = 0
+  WHERE m.is_from_me = 0
     AND m.ROWID > ?
   ORDER BY m.ROWID ASC
 `);
@@ -95,8 +94,9 @@ end tell`;
   }
 }
 
-async function handleInboundMessage(_row: InboundMessage, content: string) {
-  console.log(`[${new Date().toISOString()}] New message: "${content}"`);
+async function handleInboundMessage(row: InboundMessage, content: string) {
+  const senderHandle = row.handle || FRIEND_HANDLE;
+  console.log(`[${new Date().toISOString()}] New message from ${senderHandle}: "${content}"`);
 
   try {
     const response = await fetch(`${API_URL}/api/imessage/trigger`, {
@@ -113,7 +113,7 @@ async function handleInboundMessage(_row: InboundMessage, content: string) {
     const debateUrl = `http://128.61.105.33:3000/debate/${debateId}`;
 
     console.log(`Debate created: ${debateId}`);
-    await sendIM(FRIEND_HANDLE, `debate started: ${debateUrl}`);
+    await sendIM(senderHandle, `debate started: ${debateUrl}`);
 
     let attempts = 0;
     const maxAttempts = 200;
@@ -129,7 +129,7 @@ async function handleInboundMessage(_row: InboundMessage, content: string) {
           (m: any) => m.type === "judge",
         );
         if (judgeMessage) {
-          await sendIM(FRIEND_HANDLE, judgeMessage.text);
+          await sendIM(senderHandle, judgeMessage.text);
           break;
         }
       }
@@ -139,7 +139,7 @@ async function handleInboundMessage(_row: InboundMessage, content: string) {
     }
   } catch (error) {
     console.error("Error handling message:", error);
-    await sendIM(FRIEND_HANDLE, "sorry something broke lol");
+    await sendIM(senderHandle, "sorry something broke lol");
   }
 }
 
@@ -163,7 +163,7 @@ async function pollOnce() {
   polling = true;
   try {
     const last = getLastProcessedRowId();
-    const rows = selectInbound.all(FRIEND_HANDLE, last) as InboundMessage[];
+    const rows = selectInbound.all(last) as InboundMessage[];
 
     if (!rows.length) return;
 
@@ -194,7 +194,7 @@ setInterval(pollOnce, POLL_MS);
 console.log(`
 🎭 iMessage Client Running!
 
-📱 Monitoring iMessages from: ${FRIEND_HANDLE}
+📱 Monitoring iMessages from: ALL CONTACTS
 🌐 API: ${API_URL}
 
 Waiting for messages...
