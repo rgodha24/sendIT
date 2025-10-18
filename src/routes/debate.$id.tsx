@@ -1,15 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect, useRef, useCallback } from "react";
-import type { Message } from "@/lib/debate";
-
-type DebateHistory = {
-	id: string;
-	question: string;
-	messages: Message[];
-	timestamp: number;
-	isFavorite?: boolean;
-	reaction?: "thumbs-up" | "thumbs-down";
-};
+import { useEffect, useRef, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getDebateFn } from "@/lib/debate-storage";
 
 export const Route = createFileRoute("/debate/$id")({
 	component: DebateDetailPage,
@@ -18,29 +10,19 @@ export const Route = createFileRoute("/debate/$id")({
 function DebateDetailPage() {
 	const { id } = Route.useParams();
 	const navigate = useNavigate();
-	const [debate, setDebate] = useState<DebateHistory | null>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	useEffect(() => {
-		const saved = localStorage.getItem("debateHistory");
-		if (saved) {
-			try {
-				const history: DebateHistory[] = JSON.parse(saved);
-				const found = history.find((d) => d.id === id);
-				if (found) {
-					setDebate(found);
-				} else {
-					// Debate not found, redirect to home
-					navigate({ to: "/" });
-				}
-			} catch (e) {
-				console.error("Failed to load debate", e);
+	const { data: debate } = useQuery({
+		queryKey: ["debate", id],
+		queryFn: async () => {
+			const found = await getDebateFn({ data: { id } });
+			if (!found) {
 				navigate({ to: "/" });
+				return null;
 			}
-		} else {
-			navigate({ to: "/" });
-		}
-	}, [id, navigate]);
+			return found;
+		},
+	});
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

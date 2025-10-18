@@ -1,46 +1,82 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
-import type { Message } from "@/lib/debate";
-
-type DebateHistory = {
-	id: string;
-	question: string;
-	messages: Message[];
-	timestamp: number;
-	isFavorite?: boolean;
-	reaction?: "thumbs-up" | "thumbs-down";
-};
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+	getDebatesFn,
+	updateDebateFn,
+	deleteDebateFn,
+	type DebateHistory,
+} from "@/lib/debate-storage";
 
 export const Route = createFileRoute("/history")({
 	component: HistoryPage,
 });
 
 function HistoryPage() {
-	const [debateHistory, setDebateHistory] = useState<DebateHistory[]>([]);
+	const queryClient = useQueryClient();
 
-	useEffect(() => {
-		const saved = localStorage.getItem("debateHistory");
-		if (saved) {
-			try {
-				setDebateHistory(JSON.parse(saved));
-			} catch (e) {
-				console.error("Failed to load debate history", e);
+	const { data: debateHistory = [] } = useQuery({
+		queryKey: ["debates"],
+		queryFn: () => getDebatesFn(),
+	});
+
+	const toggleFavoriteMutation = useMutation({
+		mutationFn: ({
+			debateId,
+			isFavorite,
+		}: {
+			debateId: string;
+			isFavorite: boolean;
+		}) => updateDebateFn({ data: { id: debateId, isFavorite } }),
+		onMutate: async ({ debateId, isFavorite }) => {
+			await queryClient.cancelQueries({ queryKey: ["debates"] });
+			const previous = queryClient.getQueryData<DebateHistory[]>(["debates"]);
+			queryClient.setQueryData<DebateHistory[]>(["debates"], (old) =>
+				old?.map((d) => (d.id === debateId ? { ...d, isFavorite } : d)),
+			);
+			return { previous };
+		},
+		onError: (_err, _vars, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(["debates"], context.previous);
 			}
-		}
-	}, []);
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({ queryKey: ["debates"] });
+		},
+	});
+
+	const deleteDebateMutation = useMutation({
+		mutationFn: (debateId: string) =>
+			deleteDebateFn({ data: { id: debateId } }),
+		onMutate: async (debateId) => {
+			await queryClient.cancelQueries({ queryKey: ["debates"] });
+			const previous = queryClient.getQueryData<DebateHistory[]>(["debates"]);
+			queryClient.setQueryData<DebateHistory[]>(["debates"], (old) =>
+				old?.filter((d) => d.id !== debateId),
+			);
+			return { previous };
+		},
+		onError: (_err, _vars, context) => {
+			if (context?.previous) {
+				queryClient.setQueryData(["debates"], context.previous);
+			}
+		},
+		onSettled: () => {
+			queryClient.invalidateQueries({ queryKey: ["debates"] });
+		},
+	});
 
 	const toggleFavorite = (debateId: string) => {
-		const updated = debateHistory.map((d) =>
-			d.id === debateId ? { ...d, isFavorite: !d.isFavorite } : d,
-		);
-		setDebateHistory(updated);
-		localStorage.setItem("debateHistory", JSON.stringify(updated));
+		const debate = debateHistory.find((d) => d.id === debateId);
+		if (!debate) return;
+		toggleFavoriteMutation.mutate({
+			debateId,
+			isFavorite: !debate.isFavorite,
+		});
 	};
 
 	const deleteDebate = (debateId: string) => {
-		const updated = debateHistory.filter((d) => d.id !== debateId);
-		setDebateHistory(updated);
-		localStorage.setItem("debateHistory", JSON.stringify(updated));
+		deleteDebateMutation.mutate(debateId);
 	};
 
 	return (
@@ -71,7 +107,9 @@ function HistoryPage() {
 					{debateHistory.length === 0 ? (
 						<div className="text-center py-16">
 							<div className="mb-4 text-6xl opacity-30">💭</div>
-							<p className="text-gray-600 text-lg font-medium">No debates yet</p>
+							<p className="text-gray-600 text-lg font-medium">
+								No debates yet
+							</p>
 							<p className="text-gray-500 text-sm mt-2">
 								Start your first debate to see it here
 							</p>
@@ -85,7 +123,9 @@ function HistoryPage() {
 					) : (
 						<div className="space-y-3">
 							{debateHistory.map((debate) => {
-								const hasJudge = debate.messages.some((m) => m.type === "judge");
+								const hasJudge = debate.messages.some(
+									(m) => m.type === "judge",
+								);
 								const judgeMessage = debate.messages.find(
 									(m) => m.type === "judge",
 								);

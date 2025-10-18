@@ -1,22 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { debateServerFn, type Message } from "@/lib/debate";
+import { saveDebateFn } from "@/lib/debate-storage";
 
 export const Route = createFileRoute("/")({
 	component: DebatePage,
 });
 
-type DebateHistory = {
-	id: string;
-	question: string;
-	messages: Message[];
-	timestamp: number;
-	isFavorite?: boolean;
-	reaction?: "thumbs-up" | "thumbs-down";
-};
-
 function DebatePage() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const [question, setQuestion] = useState("");
 	const [submittedQuestion, setSubmittedQuestion] = useState("");
 	const [messages, setMessages] = useState<Message[]>([]);
@@ -24,15 +18,12 @@ function DebatePage() {
 	const [typingIndicator, setTypingIndicator] = useState<
 		"angel" | "devil" | null
 	>(null);
-	const [currentDebateId, setCurrentDebateId] = useState<string | null>(null);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
-	// Auto-scroll to bottom when new messages arrive
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 	}, [messages, typingIndicator]);
 
-	// Load shared debate from URL
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
 		const sharedDebate = params.get("debate");
@@ -41,33 +32,35 @@ function DebatePage() {
 				const decoded = JSON.parse(atob(sharedDebate));
 				setSubmittedQuestion(decoded.question);
 				setMessages(decoded.messages);
-				setCurrentDebateId(`shared-${Date.now()}`);
 			} catch (e) {
 				console.error("Failed to load shared debate", e);
 			}
 		}
 	}, []);
 
-	// Save debate to history and navigate to it
-	const saveDebateToHistory = useCallback(
-		(debateId: string, question: string, messages: Message[]) => {
-			const newDebate: DebateHistory = {
-				id: debateId,
-				question,
-				messages,
-				timestamp: Date.now(),
-			};
-
-			const saved = localStorage.getItem("debateHistory");
-			const history: DebateHistory[] = saved ? JSON.parse(saved) : [];
-			const updated = [newDebate, ...history].slice(0, 50);
-			localStorage.setItem("debateHistory", JSON.stringify(updated));
-
-			// Navigate to the debate detail page
-			navigate({ to: "/debate/$id", params: { id: debateId } });
+	const saveDebateMutation = useMutation({
+		mutationFn: ({
+			debateId,
+			question,
+			messages,
+		}: {
+			debateId: string;
+			question: string;
+			messages: Message[];
+		}) =>
+			saveDebateFn({
+				data: {
+					id: debateId,
+					question,
+					messages,
+					timestamp: Date.now(),
+				},
+			}),
+		onSuccess: (_data, variables) => {
+			queryClient.invalidateQueries({ queryKey: ["debates"] });
+			navigate({ to: "/debate/$id", params: { id: variables.debateId } });
 		},
-		[navigate],
-	);
+	});
 
 	const startDebate = useCallback(async () => {
 		if (!question.trim()) return;
@@ -75,7 +68,6 @@ function DebatePage() {
 		setIsLoading(true);
 
 		const debateId = `debate-${Date.now()}`;
-		setCurrentDebateId(debateId);
 
 		const currentQuestion = question;
 		setMessages([]);
@@ -85,12 +77,13 @@ function DebatePage() {
 		const collectedMessages: Message[] = [];
 
 		try {
-			const stream = await debateServerFn({ data: { question: currentQuestion } });
+			const stream = await debateServerFn({
+				data: { question: currentQuestion },
+			});
 
 			for await (const msg of stream) {
 				console.log("Received message:", msg);
 
-				// Show typing indicator before message appears
 				if (msg.type === "devil") {
 					setTypingIndicator("devil");
 					await new Promise((resolve) => setTimeout(resolve, 800));
@@ -106,8 +99,11 @@ function DebatePage() {
 				setTypingIndicator(null);
 			}
 
-			// Save completed debate to history and navigate
-			saveDebateToHistory(debateId, currentQuestion, collectedMessages);
+			saveDebateMutation.mutate({
+				debateId,
+				question: currentQuestion,
+				messages: collectedMessages,
+			});
 		} catch (error) {
 			console.error("Debate error:", error);
 			console.error("Error details:", error);
@@ -115,7 +111,7 @@ function DebatePage() {
 			setIsLoading(false);
 			setTypingIndicator(null);
 		}
-	}, [question, saveDebateToHistory]);
+	}, [question, saveDebateMutation]);
 
 	return (
 		<div className="min-h-screen bg-[#f5f5f5] flex flex-col">
@@ -251,7 +247,9 @@ function DebatePage() {
 								type="text"
 								value={question}
 								onChange={(e) => setQuestion(e.target.value)}
-								onKeyDown={(e) => e.key === "Enter" && !isLoading && startDebate()}
+								onKeyDown={(e) =>
+									e.key === "Enter" && !isLoading && startDebate()
+								}
 								placeholder="should i..."
 								className="flex-1 bg-transparent border-none outline-none text-gray-900 placeholder-gray-500"
 								disabled={isLoading}
