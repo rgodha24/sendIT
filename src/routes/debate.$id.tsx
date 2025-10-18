@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getDebateFn } from "@/lib/debate-storage";
 
@@ -22,11 +22,36 @@ function DebateDetailPage() {
 			}
 			return found;
 		},
+		refetchInterval: (query) => {
+			const hasJudge = query.state.data?.messages?.some(
+				(m) => m.type === "judge",
+			);
+			return hasJudge ? false : 500;
+		},
 	});
+
+	const typingIndicator = useMemo(() => {
+		if (!debate || !debate.messages.length) return null;
+
+		const hasJudge = debate.messages.some((m) => m.type === "judge");
+		if (hasJudge) return null;
+
+		const devilCount = debate.messages.filter((m) => m.type === "devil").length;
+		const angelCount = debate.messages.filter((m) => m.type === "angel").length;
+
+		if (devilCount === angelCount) {
+			return "devil";
+		}
+		if (angelCount < devilCount) {
+			return "angel";
+		}
+
+		return null;
+	}, [debate]);
 
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [debate]);
+	}, [debate, typingIndicator]);
 
 	const shareDebate = useCallback(() => {
 		if (!debate) return;
@@ -129,6 +154,30 @@ function DebateDetailPage() {
 							</div>
 						);
 					})}
+
+					{/* Typing indicator */}
+					{typingIndicator && (
+						<div className="flex flex-col gap-1">
+							<div className="text-xs text-gray-700 px-2 text-left font-medium">
+								{typingIndicator === "devil" ? "Devil 😈" : "Angel 😇"}
+							</div>
+							<div className="flex justify-start">
+								<div className="max-w-[75%] px-4 py-2 bg-[#E9E9EB] text-gray-900 rounded-[18px] rounded-tl-[4px] shadow-sm">
+									<div className="flex gap-1">
+										<span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" />
+										<span
+											className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+											style={{ animationDelay: "0.2s" }}
+										/>
+										<span
+											className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+											style={{ animationDelay: "0.4s" }}
+										/>
+									</div>
+								</div>
+							</div>
+						</div>
+					)}
 
 					<div ref={messagesEndRef} />
 				</div>
