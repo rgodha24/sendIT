@@ -1,6 +1,7 @@
 import http from "node:http";
 import Database from "better-sqlite3";
 import { runDebateLogic, type Message } from "./src/lib/debate";
+import { buildDebateContext, formatContextForPrompt } from "./src/lib/context";
 
 const PORT = 3001;
 const ROUNDS = 5;
@@ -14,7 +15,8 @@ db.exec(`
     messages TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     is_favorite INTEGER DEFAULT 0,
-    reaction TEXT
+    reaction TEXT,
+    context TEXT
   )
 `);
 
@@ -27,8 +29,10 @@ function updateDebateMessages(debateId: string, messages: Message[]) {
 
 async function runDebate(question: string, debateId: string) {
   const allMessages: Message[] = [];
+  const context = buildDebateContext(question, 0);
+  const contextPrompt = formatContextForPrompt(context);
 
-  await runDebateLogic(question, ROUNDS, async (message) => {
+  await runDebateLogic(question, ROUNDS, contextPrompt, async (message) => {
     allMessages.push(message);
     updateDebateMessages(debateId, allMessages);
   });

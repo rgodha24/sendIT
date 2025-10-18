@@ -2,7 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { anthropic } from "@ai-sdk/anthropic";
 import { generateText } from "ai";
 import { z } from "zod";
-import { buildDebateContext, formatContextForPrompt, type DebateContext } from "./context";
+import {
+	buildDebateContext,
+	formatContextForPrompt,
+	type DebateContext,
+} from "./context";
 
 export type Message =
 	| { type: "devil"; text: string }
@@ -165,17 +169,57 @@ export const debateServerFn = createServerFn()
 		const contextPrompt = formatContextForPrompt(context);
 		console.log("Server function called with question:", question);
 
-		// Yield context first so frontend can save it
 		yield { type: "context", context } as Message;
 
-		const messages: Message[] = [];
+		const messages: Array<{ angel: string } | { devil: string }> = [];
 
-		await runDebateLogic(question, 5, contextPrompt, async (msg) => {
-			messages.push(msg);
-			return;
+		for (let i = 0; i < 5; i++) {
+			const { text: devil } = await generateText({
+				model: anthropic("claude-haiku-4-5"),
+				system: DEVIL_SYSTEM(question, contextPrompt),
+				messages:
+					messages.length === 0
+						? [{ role: "user", content: "you go first" }]
+						: messages.map((obj) =>
+								"angel" in obj
+									? { role: "user", content: obj.angel }
+									: { role: "assistant", content: obj.devil },
+							),
+			});
+			messages.push({ devil });
+			yield { type: "devil", text: devil } as Message;
+
+			const { text: angel } = await generateText({
+				model: anthropic("claude-haiku-4-5"),
+				system: ANGEL_SYSTEM(question, contextPrompt),
+				messages: messages.map((obj) =>
+					"angel" in obj
+						? { role: "assistant", content: obj.angel }
+						: { role: "user", content: obj.devil },
+				),
+			});
+			messages.push({ angel });
+			yield { type: "angel", text: angel } as Message;
+		}
+
+		const { text: judgeText } = await generateText({
+			model: anthropic("claude-sonnet-4-5"),
+			system: JUDGE_SYSTEM(question, contextPrompt),
+			messages: [
+				{
+					role: "user",
+					content: messages
+						.map((obj) =>
+							"angel" in obj
+								? `<angel>${obj.angel}</angel>`
+								: `<devil>${obj.devil}</devil>`,
+						)
+						.join("\n"),
+				},
+			],
 		});
 
-		for (const message of messages) {
-			yield message;
-		}
+		const match = judgeText.match(/<response>(.*?)<\/response>/s);
+		const judge = match ? match[1].trim() : judgeText;
+		yield { type: "judge", text: judge } as Message;
 	});
