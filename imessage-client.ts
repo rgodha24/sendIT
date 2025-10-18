@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 
 const FRIEND_HANDLE = "+14704527548";
-const API_URL = process.env.API_URL ?? "http://localhost:3000";
+const API_URL = "http://localhost:3001";
 const POLL_MS = 2000;
 
 const appDb = new Database("imessage-client.sqlite");
@@ -52,7 +52,9 @@ function decodeAttributedBody(attr: Uint8Array | null): string | null {
       if (len > 0 && len < 200 && i + 2 + len <= attr.length) {
         const textBytes = attr.slice(i + 2, i + 2 + len);
         try {
-          const text = new TextDecoder("utf-8", { fatal: true }).decode(textBytes);
+          const text = new TextDecoder("utf-8", { fatal: true }).decode(
+            textBytes,
+          );
           if (text.length > 0 && !text.includes("\x00")) {
             return text;
           }
@@ -69,14 +71,14 @@ async function sendIM(handle: string, text: string) {
     const { exec } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const execAsync = promisify(exec);
-    
+
     const escapedText = text.replace(/"/g, '\\"');
     const script = `tell application "Messages"
 set targetService to 1st service whose service type = iMessage
 set targetBuddy to buddy "${handle}" of targetService
 send "${escapedText}" to targetBuddy
 end tell`;
-    
+
     await execAsync(`osascript -e '${script}'`);
   } catch (e) {
     console.error("Error sending iMessage:", e);
@@ -98,30 +100,33 @@ async function handleInboundMessage(_row: InboundMessage, content: string) {
     }
 
     const { debateId } = await response.json();
-    const debateUrl = `${API_URL}/debate/${debateId}`;
+    const debateUrl = `http://128.61.105.33:3000/debate/${debateId}`;
 
     console.log(`Debate created: ${debateId}`);
     await sendIM(FRIEND_HANDLE, `debate started: ${debateUrl}`);
 
     let attempts = 0;
     const maxAttempts = 200;
-    
+
     while (attempts < maxAttempts) {
-      const debateResponse = await fetch(`${API_URL}/api/imessage/debate?debateId=${debateId}`);
+      const debateResponse = await fetch(
+        `${API_URL}/api/imessage/debate?debateId=${debateId}`,
+      );
       const debate = await debateResponse.json();
-      
+
       if (debate && debate.messages) {
-        const judgeMessage = debate.messages.find((m: any) => m.type === "judge");
+        const judgeMessage = debate.messages.find(
+          (m: any) => m.type === "judge",
+        );
         if (judgeMessage) {
           await sendIM(FRIEND_HANDLE, judgeMessage.text);
           break;
         }
       }
-      
+
       await new Promise((resolve) => setTimeout(resolve, 1000));
       attempts++;
     }
-
   } catch (error) {
     console.error("Error handling message:", error);
     await sendIM(FRIEND_HANDLE, "sorry something broke lol");
@@ -137,7 +142,7 @@ function getLastProcessedRowId(): number {
 
 function setLastProcessedRowId(v: number) {
   appDb.exec(
-    `INSERT INTO state(key, value) VALUES ('last_rowid', '${v}') ON CONFLICT(key) DO UPDATE SET value='${v}'`
+    `INSERT INTO state(key, value) VALUES ('last_rowid', '${v}') ON CONFLICT(key) DO UPDATE SET value='${v}'`,
   );
 }
 
