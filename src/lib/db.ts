@@ -11,7 +11,8 @@ db.exec(`
     messages TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
     is_favorite INTEGER DEFAULT 0,
-    reaction TEXT
+    reaction TEXT,
+    context TEXT
   )
 `);
 
