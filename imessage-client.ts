@@ -70,16 +70,26 @@ async function sendIM(handle: string, text: string) {
   try {
     const { exec } = await import("node:child_process");
     const { promisify } = await import("node:util");
+    const { writeFile, unlink } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
     const execAsync = promisify(exec);
 
-    const escapedText = text.replace(/"/g, '\\"');
+    const escapedText = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
     const script = `tell application "Messages"
 set targetService to 1st service whose service type = iMessage
 set targetBuddy to buddy "${handle}" of targetService
 send "${escapedText}" to targetBuddy
 end tell`;
 
-    await execAsync(`osascript -e '${script}'`);
+    const tempFile = join(tmpdir(), `imessage-${Date.now()}.scpt`);
+    await writeFile(tempFile, script, "utf-8");
+
+    try {
+      await execAsync(`osascript "${tempFile}"`);
+    } finally {
+      await unlink(tempFile).catch(() => {});
+    }
   } catch (e) {
     console.error("Error sending iMessage:", e);
   }
